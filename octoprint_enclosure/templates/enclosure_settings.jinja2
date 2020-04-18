@@ -37,6 +37,12 @@
       </div>
       <div class="controls">
         <label class="radio">
+          <input type="radio" value="ws2801" data-bind="checked: output_type, attr: {name: 'output_type_' + $index() }"> {{ _('WS2801') }}
+          </span>
+        </label>
+      </div>
+      <div class="controls">
+        <label class="radio">
           <input type="radio" value="ledstrip" data-bind="checked: output_type, attr: {name: 'output_type_' + $index() }"> {{ _('RGB LED Strip') }}
           </span>
         </label>
@@ -91,7 +97,7 @@
       </div>
     </div>
     <!-- /ko -->
-    <!-- ko ifnot: ($data.output_type() == "gcode_output" || $data.output_type() == "temperature_alarm" || $data.output_type() == "shell_output" || $data.output_type() == "ledstrip") -->
+    <!-- ko ifnot: ($data.output_type() == "gcode_output" || $data.output_type() == "temperature_alarm" || $data.output_type() == "shell_output" || $data.output_type() == "ledstrip" || $data.output_type() == "ws2801") -->
     <div class="control-group">
       <label class="control-label">{{ _('IO Number') }}</label>
       <div class="controls">
@@ -452,6 +458,43 @@
       <label class="control-label">{{ _('Default Color') }}</label>
       <div class="controls">
         <input type="text" class="input-block-level" data-bind="value: default_neopixel_color, attr: {name: 'colorpicker' } , click: $root.showColorPicker()">
+        <span class="help-inline">Value needs to follow the format rgb(value_red,value_green,value_blue) where values should be between 0 and 255</span>
+      </div>
+    </div>
+    <!-- /ko -->
+    <!-- ko if: ($data.output_type() == "ws2801")  -->
+    <div class="control-group">
+      <label class="control-label">{{ _('SPI Port') }}</label>
+      <div class="controls">
+        <input type="text" class="input-block-level" data-bind="value: ws2801_spi_port">
+        <span class="help-inline">SPI port number</span>
+      </div>
+    </div>
+    <div class="control-group">
+      <label class="control-label">{{ _('SPI Device') }}</label>
+      <div class="controls">
+        <input type="text" class="input-block-level" data-bind="value: ws2801_spi_device">
+        <span class="help-inline">SPI device number</span>
+      </div>
+    </div>
+    <div class="control-group">
+      <label class="control-label">{{ _('Number of LEDS') }}</label>
+      <div class="controls">
+        <input type="text" class="input-block-level" data-bind="value: ws2801_pixelcount">
+        <span class="help-inline">Number of led's on strip</span>
+      </div>
+    </div>
+    <div class="control-group">
+      <label class="control-label">{{ _('Brightness') }}</label>
+      <div class="controls">
+        <input type="text" class="input-block-level" data-bind="value: ws2801_brightness">
+        <span class="help-inline">Value between 0 and 255</span>
+      </div>
+    </div>
+    <div class="control-group">
+      <label class="control-label">{{ _('Default Color') }}</label>
+      <div class="controls">
+        <input type="text" class="input-block-level" data-bind="value: default_ws2801_color, attr: {name: 'colorpicker' } , click: $root.showColorPicker()">
         <span class="help-inline">Value needs to follow the format rgb(value_red,value_green,value_blue) where values should be between 0 and 255</span>
       </div>
     </div>

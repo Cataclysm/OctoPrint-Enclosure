@@ -385,6 +385,38 @@ class EnclosurePlugin(octoprint.plugin.StartupPlugin, octoprint.plugin.TemplateP
 
         return make_response('', 204)
 
+    @octoprint.plugin.BlueprintPlugin.route("/ws2801/<int:identifier>", methods=["PATCH"])
+    @restricted_access
+    def set_ws2801(self, identifier):
+        """ set_ws2801 method get request from octoprint and send the command to the strip"""
+        if "application/json" not in request.headers["Content-Type"]:
+            return make_response("expected json", 400)
+        try:
+            data = request.json
+        except BadRequest:
+            return make_response("malformed request", 400)
+
+        if 'red' not in data:
+            return make_response("missing red attribute", 406)
+        if 'green' not in data:
+            return make_response("missing green attribute", 406)
+        if 'blue' not in data:
+            return make_response("missing blue attribute", 406)
+
+        red = data['red']
+        green = data['green']
+        blue = data['blue']
+
+        for rpi_output in self.rpi_outputs:
+            if identifier == self.to_int(rpi_output['index_id']):
+                led_count = rpi_output['ws2801_pixelcount']
+                led_brightness = rpi_output['ws2801_brightness']
+                spi_port = rpi_output['ws2801_spi_port']
+                spi_device = rpi_output['ws2801_spi_device']
+
+                self.send_ws2801_command(spi_port, spi_device, led_count, led_brightness, red, green, blue, identifier)
+
+        return make_response('', 204)
 
     @octoprint.plugin.BlueprintPlugin.route("/clear-gpio", methods=["POST"])
     @restricted_access
@@ -416,10 +448,6 @@ class EnclosurePlugin(octoprint.plugin.StartupPlugin, octoprint.plugin.TemplateP
         rpi_output = [r_out for r_out in self.rpi_outputs if self.to_int(r_out['index_id']) == identifier].pop()
         self.send_gcode_command(rpi_output['gcode'])
         return make_response('', 204)
-
-
-
-
 
     """
     DEPRECATION
@@ -561,6 +589,25 @@ class EnclosurePlugin(octoprint.plugin.StartupPlugin, octoprint.plugin.TemplateP
 
         return jsonify(success=True)
 
+    @octoprint.plugin.BlueprintPlugin.route("/setWS2801", methods=["GET"])
+    def set_ws2801_old(self):
+        """ set_ws2801 method get request from octoprint and send the command WS2801"""
+        gpio_index = self.to_int(request.values["index_id"])
+        red = request.values["red"]
+        green = request.values["green"]
+        blue = request.values["blue"]
+        for rpi_output in self.rpi_outputs:
+            if gpio_index == self.to_int(rpi_output['index_id']):
+                led_count = rpi_output['ws2801_pixelcount']
+                led_brightness = rpi_output['ws2801_brightness']
+                spi_port = rpi_output['ws2801_spi_port']
+                spi_device = rpi_output['ws2801_spi_device']
+
+                self.send_ws2801_command(spi_port, spi_device, led_count, led_brightness, red, green,
+                    blue, gpio_index)
+
+        return jsonify(success=True)
+
     @octoprint.plugin.BlueprintPlugin.route("/setLedstripColor", methods=["GET"])
     def set_ledstrip_color_old(self):
         """ set_ledstrip_color method get request from octoprint and send the command to Open-Smart RGB LED Strip"""
@@ -623,6 +670,72 @@ class EnclosurePlugin(octoprint.plugin.StartupPlugin, octoprint.plugin.TemplateP
                 if queue_id is not None:
                     self._logger.debug("running scheduled queue id %s", queue_id)
                 self._logger.debug("Sending neopixel cmd: %s", cmd)
+            Popen(cmd, shell=True)
+            if queue_id is not None:
+                self.stop_queue_item(queue_id)
+        except Exception as ex:
+            self.log_error(ex)
+
+    def check_enclosure_temp(self):
+        try:
+            sensor_data = []
+            for sensor in list(filter(lambda item: item['input_type'] == 'temperature_sensor', self.rpi_inputs)):
+                temp, hum = self.get_sensor_data(sensor)
+                if  self._settings.get(["debug_temperature_log"]) is True:
+                    self._logger.debug("Sensor %s Temperature: %s humidity %s", sensor['label'], temp, hum)
+                if temp is not None and hum is not None:
+                    sensor["temp_sensor_temp"] = temp
+                    sensor["temp_sensor_humidity"] = hum
+                    sensor_data.append(dict(index_id=sensor['index_id'], temperature=temp, humidity=hum))
+                    self.temperature_sensor_data = sensor_data
+                    self.handle_temp_hum_control()
+                    self.handle_temperature_events()
+                    self.handle_pwm_linked_temperature()
+                    self.update_ui()
+        except Exception as ex:
+            self.log_error(ex)
+
+    def send_ws2801_command(self, spi_port, spi_device, led_count, led_brightness, red, green, blue,
+                              index_id, queue_id=None):
+        """Send WS2801 command
+
+        Arguments:
+            spi_port {int} -- SPI port number
+            spi_device (int) -- SPI device number
+            ledCount {int} -- number of LEDS
+            ledBrightness {int} -- brightness from 0 to 255
+            red {int} -- red value from 0 to 255
+            green {int} -- green value from 0 to 255
+            blue {int} -- blue value from 0 to 255
+        """
+
+        try:
+
+            for rpi_output in self.rpi_outputs:
+                if self.to_int(index_id) == self.to_int(rpi_output['index_id']):
+                    rpi_output['ws2801_color'] = 'rgb({0!s},{1!s},{2!s})'.format(red, green, blue)
+
+            if spi_port == '':
+                spi_port = 0
+
+            if spi_device == '':
+                spi_device = 0
+
+            script = os.path.dirname(os.path.realpath(__file__)) + "/ws2801.py"
+
+            if self._settings.get(["use_sudo"]):
+                sudo_str = "sudo "
+            else:
+                sudo_str = ""
+
+            cmd = sudo_str + "python " + script + " " + str(spi_port) + " " + str(spi_device) + " " + str(
+                led_count) + " " + str(led_brightness) + " " + str(
+                red) + " " + str(green) + " " + str(blue)
+
+            if queue_id is not None:
+                self._logger.debug("running scheduled queue id %s", queue_id)
+            self._logger.debug("Sending WS2801 cmd: %s", cmd)
+
             Popen(cmd, shell=True)
             if queue_id is not None:
                 self.stop_queue_item(queue_id)
@@ -736,6 +849,7 @@ class EnclosurePlugin(octoprint.plugin.StartupPlugin, octoprint.plugin.TemplateP
             regular_status = []
             pwm_status = []
             neopixel_status = []
+            ws2801_status = []
             temp_control_status = []
             for output in self.rpi_outputs:
                 index = self.to_int(output['index_id'])
@@ -755,6 +869,10 @@ class EnclosurePlugin(octoprint.plugin.StartupPlugin, octoprint.plugin.TemplateP
                     val = output['neopixel_color']
                     neopixel_status.append(
                         dict(index_id=index, color=val, auto_startup=startup, auto_shutdown=shutdown))
+                if output['output_type'] == 'ws2801':
+                    val = output['ws2801_color']
+                    ws2801_status.append(
+                        dict(index_id=index, color=val, auto_startup=startup, auto_shutdown=shutdown))
                 if output['output_type'] == 'pwm':
                     for pwm in self.pwm_instances:
                         if pin in pwm:
@@ -768,6 +886,7 @@ class EnclosurePlugin(octoprint.plugin.StartupPlugin, octoprint.plugin.TemplateP
             self._plugin_manager.send_plugin_message(self._identifier,
                                                      dict(rpi_output_regular=regular_status, rpi_output_pwm=pwm_status,
                                                           rpi_output_neopixel=neopixel_status,
+                                                          rpi_output_ws2801=ws2801_status,
                                                           rpi_output_temp_hum_ctrl=temp_control_status))
         except Exception as ex:
             self.log_error(ex)
@@ -1572,6 +1691,8 @@ class EnclosurePlugin(octoprint.plugin.StartupPlugin, octoprint.plugin.TemplateP
             self.schedule_pwm_duty_on_queue(shutdown_delay_seconds, rpi_output, 0, sufix)
         if (rpi_output['output_type'] == 'neopixel_indirect' or rpi_output['output_type'] == 'neopixel_direct'):
             self.add_neopixel_output_to_queue(rpi_output, shutdown_delay_seconds, 0, 0, 0, sufix)
+        if (rpi_output['output_type'] == 'ws2801'):
+            self.add_ws2801_output_to_queue(rpi_output, shutdown_delay_seconds, 0, 0, 0, sufix)
         if rpi_output['output_type'] == 'temp_hum_control':
             value = 0
             self.add_temperature_output_temperature_queue(shutdown_delay_seconds, rpi_output, value, sufix)
@@ -1611,6 +1732,15 @@ class EnclosurePlugin(octoprint.plugin.StartupPlugin, octoprint.plugin.TemplateP
                     neopixel_direct = rpi_output['output_type'] == 'neopixel_direct'
                     self.send_neopixel_command(self.to_int(rpi_output['gpio_pin']), led_count, led_brightness, red,
                                                green, blue, address, neopixel_direct, index_id)
+                if (rpi_output['output_type'] == 'ws2801'):
+                    red, green, blue = self.get_color_from_rgb(rpi_output['default_ws2801_color'])
+                    led_count = rpi_output['ws2801_pixelcount']
+                    led_brightness = rpi_output['ws2801_brightness']
+                    spi_port = rpi_output['ws2801_spi_port']
+                    spi_device = rpi_output['ws2801_spi_device']
+                    index_id = self.to_int(rpi_output['index_id'])
+                    self.send_ws2801_command(spi_port, spi_device, led_count, led_brightness, red,
+                                               green, blue, index_id)
                 if rpi_output['output_type'] == 'temp_hum_control':
                     rpi_output['temp_ctr_set_value'] = rpi_output['temp_ctr_default_value']
 
@@ -1627,6 +1757,9 @@ class EnclosurePlugin(octoprint.plugin.StartupPlugin, octoprint.plugin.TemplateP
         if (rpi_output['output_type'] == 'neopixel_indirect' or rpi_output['output_type'] == 'neopixel_direct'):
             red, green, blue = self.get_color_from_rgb(rpi_output['default_neopixel_color'])
             self.add_neopixel_output_to_queue(rpi_output, delay_seconds, red, green, blue, sufix)
+        if (rpi_output['output_type'] == 'ws2801'):
+            red, green, blue = self.get_color_from_rgb(rpi_output['default_ws2801_color'])
+            self.add_ws2801_output_to_queue(rpi_output, delay_seconds, red, green, blue, sufix)
         if rpi_output['output_type'] == 'temp_hum_control':
             value = rpi_output['temp_ctr_default_value']
             self.add_temperature_output_temperature_queue(delay_seconds, rpi_output, value, sufix)
@@ -1667,6 +1800,23 @@ class EnclosurePlugin(octoprint.plugin.StartupPlugin, octoprint.plugin.TemplateP
 
         thread = threading.Timer(delay_seconds, self.send_neopixel_command,
                                  args=[gpio_pin, ledCount, ledBrightness, red, green, blue, address, neopixel_direct,
+                                       index_id, queue_id])
+
+        self.event_queue.append(dict(queue_id=queue_id, thread=thread))
+
+    def add_ws2801_output_to_queue(self, rpi_output, delay_seconds, red, green, blue, sufix):
+        ledCount = rpi_output['ws2801_pixelcount']
+        ledBrightness = rpi_output['ws2801_brightness']
+        spi_port = rpi_output['ws2801_spi_port']
+        spi_device = rpi_output['ws2801_spi_device']
+        index_id = self.to_int(rpi_output['index_id'])
+
+        queue_id = '{0!s}_{1!s}'.format(index_id, sufix)
+
+        self._logger.debug("Scheduling WS2801 output id %s for on %s delay_seconds", queue_id, delay_seconds)
+
+        thread = threading.Timer(delay_seconds, self.send_ws2801_command,
+                                 args=[spi_port, spi_device, ledCount, ledBrightness, red, green, blue,
                                        index_id, queue_id])
 
         self.event_queue.append(dict(queue_id=queue_id, thread=thread))
@@ -1842,6 +1992,23 @@ class EnclosurePlugin(octoprint.plugin.StartupPlugin, octoprint.plugin.TemplateP
                         blue, address, neopixel_direct, index_id)
                     comm_instance._log(
                         "Setting NEOPIXEL output %s to red: %s green: %s blue: %s" % (index_id, red, green, blue))
+                    return
+                if output['output_type'] == 'ws2801':
+                    red = self.get_gcode_value(cmd, 'R')
+                    green = self.get_gcode_value(cmd, 'G')
+                    blue = self.get_gcode_value(cmd, 'B')
+
+                    led_count = output['ws2801_pixelcount']
+                    led_brightness = output['ws2801_brightness']
+                    spi_port = output['ws2801_spi_port']
+                    spi_device = output['ws2801_spi_device']
+
+                    index_id = self.to_int(output['index_id'])
+
+                    self.send_ws2801_command(spi_port, spi_device, led_count, led_brightness, red, green,
+                        blue, index_id)
+                    comm_instance._log(
+                        "Setting WS2801 output %s to red: %s green: %s blue: %s" % (index_id, red, green, blue))
                     return
                 if output['output_type'] == 'temp_hum_control':
                     set_value = self.to_float(self.get_gcode_value(cmd, 'S'))

@@ -226,6 +226,19 @@
 </div>
 <!-- /ko -->
 
+<!-- ko if: ($data.output_type() == "ws2801")  -->
+<h4>
+    <span data-bind="html: label"> </span>
+    <span class="badge">ws2801</span>
+</h4>
+<div class="input-append ws2801-div">
+    <input type="text" class="input-block-level" data-bind="click: $root.showColorPicker(), value: new_ws2801_color, valueUpdate: 'input', attr: {placeholder:ws2801_color, name: 'colorpicker'}">
+    <button type="submit" class="btn btn-input-inc" title="Set Color" data-bind="enable: $root.isUser(), click: $root.handleWS2801">
+        <i class="fa fa-check"></i>
+    </button>
+</div>
+<!-- /ko -->
+
 <!-- ko if: ($data.output_type() == "temp_hum_control")  -->
 <h4>
     <span data-bind="html: label"> </span>

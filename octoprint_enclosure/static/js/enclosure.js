@@ -225,6 +225,19 @@ $(function () {
         })
       }
 
+      if (data.hasOwnProperty("rpi_output_ws2801")) {
+        data.rpi_output_ws2801.forEach(function (output) {
+          var linked_output = ko.utils.arrayFilter(self.rpi_outputs(), function (item) {
+            return (output['index_id'] == item.index_id());
+          }).pop();
+          if (linked_output) {
+            linked_output.ws2801_color(output['color'])
+            linked_output.auto_shutdown(output['auto_shutdown'])
+            linked_output.auto_startup(output['auto_startup'])
+          }
+        })
+      }
+
       if (data.hasOwnProperty("rpi_output_ledstrip")) {
         data.rpi_output_ledstrip.forEach(function (output) {
           var linked_output = ko.utils.arrayFilter(self.rpi_outputs(), function (item) {
@@ -414,6 +427,13 @@ $(function () {
         new_neopixel_color: ko.observable(""),
         neopixel_count: ko.observable(0),
         neopixel_brightness: ko.observable(255),
+        ws2801_color: ko.observable("rgb(0,0,0)"),
+        default_ws2801_color: ko.observable(""),
+        new_ws2801_color: ko.observable(""),
+        ws2801_spi_port: ko.observable(0),
+        ws2801_spi_device: ko.observable(0),
+        ws2801_pixelcount: ko.observable(0),
+        ws2801_brightness: ko.observable(255),
         ledstrip_color: ko.observable("rgb(0,0,0)"),
         default_ledstrip_color: ko.observable(""),
         new_ledstrip_color: ko.observable(""),
@@ -650,6 +670,43 @@ $(function () {
           url: self.buildPluginUrl("/setNeopixel"),
           success: function (data) {
             item.new_neopixel_color("");
+            self.getUpdateUI();
+          }
+        });
+      }
+    };
+
+    self.handleWS2801 = function (item) {
+
+      var index = item.index_id() ;
+      var or_tempStr = item.new_ws2801_color();
+      var tempStr = or_tempStr.replace("rgb(", "");
+
+      var r = parseInt(tempStr.substring(0, tempStr.indexOf(",")));
+      tempStr = tempStr.slice(tempStr.indexOf(",") + 1);
+      var g = parseInt(tempStr.substring(0, tempStr.indexOf(",")));
+      tempStr = tempStr.slice(tempStr.indexOf(",") + 1);
+      var b = parseInt(tempStr.substring(0, tempStr.indexOf(")")));
+
+      if (r < 0 || r > 255 || g < 0 || g > 255 || b < 0 || b > 255 || isNaN(r) || isNaN(g) || isNaN(b)) {
+        new PNotify({
+          title: "Enclosure",
+          text: "Color needs to follow the format rgb(value_red,value_green,value_blue)!",
+          type: "error"
+        });
+      } else {
+        $.ajax({
+          type: "GET",
+          dataType: "json",
+          data: {
+            "index_id": index,
+            "red": r,
+            "green": g,
+            "blue": b
+          },
+          url: self.buildPluginUrl("/setWS2801"),
+          success: function (data) {
+            item.new_ws2801_color("");
             self.getUpdateUI();
           }
         });
